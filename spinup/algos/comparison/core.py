@@ -25,6 +25,11 @@ def gaussian_likelihood(x, mu, log_std):
     pre_sum = -0.5 * (((x-mu)/(tf.exp(log_std)+EPS))**2 + 2*log_std + np.log(2*np.pi))
     return tf.reduce_sum(pre_sum, axis=1)
 
+def clip_but_pass_gradient(x, l=-1., u=1.):
+    clip_up = tf.cast(x > u, tf.float32)
+    clip_low = tf.cast(x < l, tf.float32)
+    return x + tf.stop_gradient((u - x)*clip_up + (l - x)*clip_low)
+
 
 """
 Policies
@@ -37,8 +42,28 @@ def mlp_gaussian_policy(x, a, hidden_sizes, activation, output_activation):
     act_dim = a.shape.as_list()[-1]
     net = mlp(x, list(hidden_sizes), activation, activation)
     mu = tf.layers.dense(net, act_dim, activation=output_activation)
-    log_std = tf.layers.dense(net, act_dim, activation=None)
-    log_std = tf.clip_by_value(log_std, LOG_STD_MIN, LOG_STD_MAX)
+
+    """
+    Because algorithm maximizes trade-off of reward and entropy,
+    entropy must be unique to state---and therefore log_stds need
+    to be a neural network output instead of a shared-across-states
+    learnable parameter vector. But for deep Relu and other nets,
+    simply sticking an activationless dense layer at the end would
+    be quite bad---at the beginning of training, a randomly initialized
+    net could produce extremely large values for the log_stds, which
+    would result in some actions being either entirely deterministic
+    or too random to come back to earth. Either of these introduces
+    numerical instability which could break the algorithm. To 
+    protect against that, we'll constrain the output range of the 
+    log_stds, to lie within [LOG_STD_MIN, LOG_STD_MAX]. This is 
+    slightly different from the trick used by the original authors of
+    SAC---they used tf.clip_by_value instead of squashing and rescaling.
+    I prefer this approach because it allows gradient propagation
+    through log_std where clipping wouldn't, but I don't know if
+    it makes much of a difference.
+    """
+    log_std = tf.layers.dense(net, act_dim, activation=tf.tanh)
+    log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)
 
     std = tf.exp(log_std)
     pi = mu + tf.random_normal(tf.shape(mu)) * std
@@ -46,22 +71,17 @@ def mlp_gaussian_policy(x, a, hidden_sizes, activation, output_activation):
     return mu, pi, logp_pi
 
 def apply_squashing_func(mu, pi, logp_pi):
-    # Adjustment to log prob
-    # NOTE: This formula is a little bit magic. To get an understanding of where it
-    # comes from, check out the original SAC paper (arXiv 1801.01290) and look in
-    # appendix C. This is a more numerically-stable equivalent to Eq 21.
-    # Try deriving it yourself as a (very difficult) exercise. :)
-    logp_pi -= tf.reduce_sum(2*(np.log(2) - pi - tf.nn.softplus(-2*pi)), axis=1)
-
-    # Squash those unbounded actions!
     mu = tf.tanh(mu)
     pi = tf.tanh(pi)
+    # To avoid evil machine precision error, strictly clip 1-pi**2 to [0,1] range.
+    logp_pi -= tf.reduce_sum(tf.log(clip_but_pass_gradient(1 - pi**2, l=0, u=1) + 1e-6), axis=1)
     return mu, pi, logp_pi
+
 
 """
 Actor-Critics
 """
-def mlp_actor_critic(x, a, hidden_sizes=(256,256), activation=tf.nn.relu, 
+def mlp_actor_critic(x, a, hidden_sizes=(400,300), activation=tf.nn.relu, 
                      output_activation=None, policy=mlp_gaussian_policy, action_space=None):
     # policy
     with tf.variable_scope('pi'):
@@ -77,6 +97,12 @@ def mlp_actor_critic(x, a, hidden_sizes=(256,256), activation=tf.nn.relu,
     vf_mlp = lambda x : tf.squeeze(mlp(x, list(hidden_sizes)+[1], activation, None), axis=1)
     with tf.variable_scope('q1'):
         q1 = vf_mlp(tf.concat([x,a], axis=-1))
+    with tf.variable_scope('q1', reuse=True):
+        q1_pi = vf_mlp(tf.concat([x,pi], axis=-1))
     with tf.variable_scope('q2'):
         q2 = vf_mlp(tf.concat([x,a], axis=-1))
-    return mu, pi, logp_pi, q1, q2
+    with tf.variable_scope('q2', reuse=True):
+        q2_pi = vf_mlp(tf.concat([x,pi], axis=-1))
+    with tf.variable_scope('v'):
+        v = vf_mlp(x)
+    return mu, pi, logp_pi, q1, q2, q1_pi, q2_pi, v
