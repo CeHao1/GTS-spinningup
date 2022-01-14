@@ -4,7 +4,7 @@ import tensorflow as tf
 EPS = 1e-8
 
 def placeholder(dim=None):
-    return tf.placeholder(dtype=tf.float32, shape=(None,dim) if dim else (None,))
+    return tf.v1.placeholder(dtype=tf.float32, shape=(None,dim) if dim else (None,))
 
 def placeholders(*args):
     return [placeholder(dim) for dim in args]
@@ -84,7 +84,7 @@ Actor-Critics
 def mlp_actor_critic(x, a, hidden_sizes=(400,300), activation=tf.nn.relu, 
                      output_activation=None, policy=mlp_gaussian_policy, action_space=None):
     # policy
-    with tf.variable_scope('pi'):
+    with tf.v1.variable_scope('pi'):
         mu, pi, logp_pi = policy(x, a, hidden_sizes, activation, output_activation)
         mu, pi, logp_pi = apply_squashing_func(mu, pi, logp_pi)
 
@@ -95,14 +95,14 @@ def mlp_actor_critic(x, a, hidden_sizes=(400,300), activation=tf.nn.relu,
 
     # vfs
     vf_mlp = lambda x : tf.squeeze(mlp(x, list(hidden_sizes)+[1], activation, None), axis=1)
-    with tf.variable_scope('q1'):
+    with tf.v1.variable_scope('q1'):
         q1 = vf_mlp(tf.concat([x,a], axis=-1))
-    with tf.variable_scope('q1', reuse=True):
+    with tf.v1.variable_scope('q1', reuse=True):
         q1_pi = vf_mlp(tf.concat([x,pi], axis=-1))
-    with tf.variable_scope('q2'):
+    with tf.v1.variable_scope('q2'):
         q2 = vf_mlp(tf.concat([x,a], axis=-1))
-    with tf.variable_scope('q2', reuse=True):
+    with tf.v1.variable_scope('q2', reuse=True):
         q2_pi = vf_mlp(tf.concat([x,pi], axis=-1))
-    with tf.variable_scope('v'):
+    with tf.v1.variable_scope('v'):
         v = vf_mlp(x)
     return mu, pi, logp_pi, q1, q2, q1_pi, q2_pi, v

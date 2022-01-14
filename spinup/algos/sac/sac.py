@@ -203,12 +203,12 @@ def construct_computation_graph(
 
     # Policy train op
     # (has to be separate from value train op, because q1_pi appears in pi_loss)
-    pi_optimizer = tf.train.AdamOptimizer(learning_rate=lr)
+    pi_optimizer = tf.v1.train.AdamOptimizer(learning_rate=lr)
     train_pi_op = pi_optimizer.minimize(pi_loss, var_list=get_vars('main/pi'))
 
     # Value train op
     # (control dep of train_pi_op because sess.run otherwise evaluates in nondeterministic order)
-    value_optimizer = tf.train.AdamOptimizer(learning_rate=lr)
+    value_optimizer = tf.v1.train.AdamOptimizer(learning_rate=lr)
     value_params = get_vars('main/q') + get_vars('main/v')
     with tf.control_dependencies([train_pi_op]):
         train_value_op = value_optimizer.minimize(value_loss, var_list=value_params)
@@ -216,7 +216,7 @@ def construct_computation_graph(
     # Polyak averaging for target variables
     # (control flow because sess.run otherwise evaluates in nondeterministic order)
     with tf.control_dependencies([train_value_op]):
-        target_update = tf.group([tf.assign(v_targ, polyak * v_targ + (1 - polyak) * v_main)
+        target_update = tf.group([tf.v1.assign(v_targ, polyak * v_targ + (1 - polyak) * v_main)
                                   for v_main, v_targ in zip(get_vars('main'), get_vars('target'))])
 
     # All ops to call during one training step
@@ -224,11 +224,11 @@ def construct_computation_graph(
                 train_pi_op, train_value_op, target_update]
 
     # Initializing targets to match main variables
-    target_init = tf.group([tf.assign(v_targ, v_main)
+    target_init = tf.group([tf.v1.assign(v_targ, v_main)
                             for v_main, v_targ in zip(get_vars('main'), get_vars('target'))])
 
-    sess = tf.Session()
-    sess.run(tf.global_variables_initializer())
+    sess = tf.v1.Session()
+    sess.run(tf.v1.global_variables_initializer())
     sess.run(target_init)
 
     inputs = {'x': x_ph, 'a': a_ph}
