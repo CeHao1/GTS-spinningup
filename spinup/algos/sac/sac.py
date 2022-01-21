@@ -11,6 +11,7 @@ import multiprocessing as mp
 from multiprocessing import Pool
 import joblib
 
+import matplotlib.pyplot as plt
 
 def evaluation_process(
         checkpoint_path, gym_kwargs, computation_graph_kwargs
@@ -118,6 +119,7 @@ def trajectory_sample_process(
 maf = 6
 c_wall_hit = 1/(2000*10/9.3)
 horizon = 100
+# horizon = 5
 max_eval_lap = 100
 
 
@@ -556,7 +558,7 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
             if epoch != 0:  # only start learning once data is available
                 # hacky solution such that number of updates not dependent on step frequency
                 num_updates = int(64 * (0.1 if debug else 1)) * completed_trajectories
-
+                print('num_updates is ', num_updates)
                 for j in range(num_updates):
                     if j % 500 == 0:
                         print("learning step %i of %i" % (j, num_updates))
@@ -571,6 +573,37 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
                     logger.store(LossPi=outs[0], LossQ1=outs[1], LossQ2=outs[2],  # TODO: measure time!!!
                                  LossV=outs[3], Q1Vals=outs[4], Q2Vals=outs[5],
                                  VVals=outs[6], LogPi=outs[7])
+
+                # print mu
+                outputs_ = sess.run(outputs, feed_dict)
+                mu = outputs_['mu']
+                print('print mu last time training')
+                plt.figure(figsize=(7,4))
+                plt.plot(mu, 'b.')
+                plt.title('mu')
+                plt.show()
+
+                plt.figure(figsize=(13,8))
+                plt.subplot(2,2,1)
+                plt.plot(outs[4], 'b.')
+                plt.title('Q1Vals')
+
+                plt.subplot(2,2,2)
+                plt.plot(outs[5], 'b.')
+                plt.title('Q2Vals')
+                    
+                plt.subplot(2,2,3)
+                plt.plot(outs[6], 'b.')
+                plt.title('VVals')
+                    
+                plt.subplot(2,2,4)
+                plt.plot(outs[7], 'b.')
+                plt.title('LogPi')
+
+                plt.show()
+                    
+            
+                    
             else:
                 logger.store(LossPi=-1, LossQ1=-1, LossQ2=-1, LossV=-1, Q1Vals=-1, Q2Vals=-1, VVals=-1, LogPi=-1)
 
@@ -626,6 +659,7 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
 
         gamma_window = np.array([gamma**i for i in range(n_step_return)])  # gammas to calculate TD(n) target
 
+
         for trajectory in standalone_trajectories:
 
             for idx, (observation, action, reward_window, num_frames_for_step_window, observation_n_plus) \
@@ -643,11 +677,36 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
                     replay_buffer.store(
                         observation, action, np.sum(np.array(reward_window)*gamma_window), observation_n_plus, False
                     )
-
                 else:
                     print("Step %i not included since slow step is in n-step window around it" % idx)
 
             logger.store(EpRet=sum(trajectory["rewards"]), EpLen=len(trajectory["rewards"]))
+
+        print('shape of obs', trajectory["observations"].shape)
+        print('shape of action', trajectory["actions"].shape)
+        # print reward
+        print('print reward related ', idx)
+        plt.figure(figsize=(7,4))
+        plt.plot(trajectory["rewards"], 'b.')
+        plt.title('trajectory["rewards"]')
+        plt.show()
+
+        plt.figure(figsize=(7,4))
+        plt.plot(np.array(reward_window), '.b')
+        plt.title('reward_window')
+        plt.show()
+
+        # print action
+        print('print action ', idx)
+        plt.figure(figsize=(7,4))
+        plt.plot(trajectory["actions"][:,0], 'b.')
+        plt.title('actions 0')
+        plt.show()   
+
+        plt.figure(figsize=(7,4))
+        plt.plot(trajectory["actions"][:,1], 'b.')
+        plt.title('actions 1')
+        plt.show()  
 
         t_store = time.time() - t_store_start
 
@@ -712,6 +771,7 @@ if __name__ == '__main__':
     from spinup.utils.run_utils import setup_logger_kwargs
     logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
 
+    
     sac(maf=args.maf, actor_critic=core.mlp_actor_critic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l, activation=args.act),
         gamma=args.gamma, seed=args.seed, epochs=args.epochs,
