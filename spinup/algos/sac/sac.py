@@ -12,6 +12,7 @@ from multiprocessing import Pool
 import joblib
 
 import matplotlib.pyplot as plt
+# import seaborn as sns
 
 def evaluation_process(
         checkpoint_path, gym_kwargs, computation_graph_kwargs
@@ -177,11 +178,11 @@ def construct_computation_graph(
 
     # Main outputs from computation graph
     with tf.variable_scope('main'):
-        mu, pi, logp_pi, q1, q2, q1_pi, q2_pi, v = actor_critic(x_ph, a_ph, **ac_kwargs)
+        mu, std, pi, logp_pi, q1, q2, q1_pi, q2_pi, v = actor_critic(x_ph, a_ph, **ac_kwargs)
 
     # Target value network
     with tf.variable_scope('target'):
-        _, _, _, _, _, _, _, v_targ = actor_critic(x2_ph, a_ph, **ac_kwargs)
+        _, _, _, _, _, _, _, _, v_targ = actor_critic(x2_ph, a_ph, **ac_kwargs)
 
     # Count variables
     var_counts = tuple(core.count_vars(scope) for scope in
@@ -787,6 +788,9 @@ if __name__ == '__main__':
     from spinup.utils.run_utils import setup_logger_kwargs
     logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
 
+    
+    # style = "whitegrid"
+    # sns.set_theme(style=style) # background color
     
     sac(maf=args.maf, actor_critic=core.mlp_actor_critic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l, activation=args.act),
