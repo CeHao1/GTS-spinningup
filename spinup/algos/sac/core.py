@@ -71,7 +71,7 @@ def mlp_gaussian_policy(x, a, hidden_sizes, activation, output_activation):
     return mu, pi, logp_pi
 
 def apply_squashing_func(mu, pi, logp_pi):
-    mu = tf.tanh(mu)
+    # mu = tf.tanh(mu)
     pi = tf.tanh(pi)
     # To avoid evil machine precision error, strictly clip 1-pi**2 to [0,1] range.
     logp_pi -= tf.reduce_sum(tf.log(clip_but_pass_gradient(1 - pi**2, l=0, u=1) + 1e-6), axis=1)

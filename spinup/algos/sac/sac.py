@@ -225,6 +225,10 @@ def construct_computation_graph(
     step_ops = [pi_loss, q1_loss, q2_loss, v_loss, q1, q2, v, logp_pi,
                 train_pi_op, train_value_op, target_update]
 
+    # other states to show
+    alpha_logpi = - alpha * logp_pi
+    step_ops += [v_targ, alpha_logpi]
+
     # Initializing targets to match main variables
     target_init = tf.group([tf.assign(v_targ, v_main)
                             for v_main, v_targ in zip(get_vars('main'), get_vars('target'))])
@@ -583,23 +587,31 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
                 plt.title('mu')
                 plt.show()
 
-                plt.figure(figsize=(13,8))
+                (q1, q2, v, logp_pi) = outs[4:8]
+                (v_targ, alpha_logpi) = outs[11:]
+
+                plt.figure(figsize=(15,8))
                 plt.subplot(2,2,1)
-                plt.plot(outs[4], 'b.')
-                plt.title('Q1Vals')
+                plt.plot(q1, 'b.')
+                plt.grid()
+                plt.title('q1')
 
                 plt.subplot(2,2,2)
-                plt.plot(outs[5], 'b.')
-                plt.title('Q2Vals')
+                plt.plot(q2, 'b.')
+                plt.grid()
+                plt.title('q2')
                     
                 plt.subplot(2,2,3)
-                plt.plot(outs[6], 'b.')
-                plt.title('VVals')
+                plt.plot(v, 'b.', label='v')
+                plt.plot(v_targ, 'r.', label='v target')
+                plt.legend()
+                plt.grid()
+                plt.title('v')
                     
                 plt.subplot(2,2,4)
-                plt.plot(outs[7], 'b.')
+                plt.plot(logp_pi, 'b.')
                 plt.title('LogPi')
-
+                plt.grid()
                 plt.show()
                     
             
@@ -689,23 +701,27 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
         plt.figure(figsize=(7,4))
         plt.plot(trajectory["rewards"], 'b.')
         plt.title('trajectory["rewards"]')
+        plt.grid()
         plt.show()
 
         plt.figure(figsize=(7,4))
         plt.plot(np.array(reward_window), '.b')
         plt.title('reward_window')
+        plt.grid()
         plt.show()
 
         # print action
         print('print action ', idx)
         plt.figure(figsize=(7,4))
         plt.plot(trajectory["actions"][:,0], 'b.')
-        plt.title('actions 0')
+        plt.title('actions 0 delta')
+        plt.grid()
         plt.show()   
 
         plt.figure(figsize=(7,4))
         plt.plot(trajectory["actions"][:,1], 'b.')
-        plt.title('actions 1')
+        plt.title('actions 1 acc')
+        plt.grid()
         plt.show()  
 
         t_store = time.time() - t_store_start
