@@ -86,7 +86,7 @@ def mlp_actor_critic(x, a, hidden_sizes=(400,300), activation=tf.nn.relu,
     # policy
     with tf.variable_scope('pi'):
         mu, std, pi, logp_pi = policy(x, a, hidden_sizes, activation, output_activation)
-        mu, std, pi, logp_pi = apply_squashing_func(mu, pi, logp_pi)
+        mu, std, pi, logp_pi = apply_squashing_func(mu, std, pi, logp_pi)
 
     # make sure actions are in correct range
     action_scale = action_space.high[0]

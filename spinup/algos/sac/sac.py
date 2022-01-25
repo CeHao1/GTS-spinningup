@@ -239,7 +239,7 @@ def construct_computation_graph(
     sess.run(target_init)
 
     inputs = {'x': x_ph, 'a': a_ph}
-    outputs = {'mu': mu, 'pi': pi, 'q1': q1, 'q2': q2, 'v': v}
+    outputs = {'mu': mu, 'std':std, 'pi': pi, 'q1': q1, 'q2': q2, 'v': v}
 
     def get_actions(observations, deterministic=False):
         act_op = mu if deterministic else pi
@@ -582,11 +582,29 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
                 # print mu
                 outputs_ = sess.run(outputs, feed_dict)
                 mu = outputs_['mu']
+                std = outputs_['std']
                 print('print mu last time training')
-                plt.figure(figsize=(7,4))
-                plt.plot(mu, 'b.')
-                plt.title('mu')
-                plt.show()
+                print('std shape', std.shape)
+
+                x = np.arange(mu.shape[0])
+
+                plt.figure(figsize=(13,8))
+                plt.subplot(221)
+                plt.plot(x, mu[:,0], 'b.')
+                plt.title('mean delta')
+
+                plt.subplot(222)
+                plt.plot(x, mu[:,1], 'b.')
+                plt.title('mean pedal')
+
+                plt.subplot(223)
+                plt.plot(x, std[:,0], 'b.')
+                plt.title('std delta')
+
+                plt.subplot(224)
+                plt.plot(x, std[:,1], 'b.')
+                plt.title('std pedal')
+
 
                 (q1, q2, v, logp_pi) = outs[4:8]
                 (v_targ, alpha_logpi) = outs[11:]
@@ -778,7 +796,7 @@ if __name__ == '__main__':
     parser.add_argument('--polyak', type=float, default=0.995)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--batch_size', type=int, default=4096)
-    parser.add_argument('--n_step_return', type=int, default=5)
+    parser.add_argument('--n_step_return', type=int, default=5) # default 5, try 1?
     parser.add_argument('--alpha', type=float, default=0.01)
     parser.add_argument('--debug', default=False, action='store_true')
     parser.add_argument('--evaluate', default=False, action='store_true')
