@@ -251,8 +251,13 @@ def construct_computation_graph(
 def window(seq, n=2):
     "Returns a sliding window (of width n) over data from the iterable"
     "   s -> (s0,s1,...s[n-1]), (s1,s2,...,sn), ...                   "
+    # if n == 1:
+    #     print('n step is 1')
+    #     return seq[:-n]
+
     it = iter(seq)
     result = tuple(islice(it, n))
+ 
     if len(result) == n:
         yield result
     for elem in it:
@@ -520,6 +525,7 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
 
     number_of_workers = len(ips) - (1 if evaluate else 0)
 
+    reward_list = []
     while True:
         # ----------------------------------- Save checkpoint of model to allow serving to subprocesses ----------------
         t_model_save_start = time.time()
@@ -628,8 +634,8 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
                 plt.title('v')
                     
                 plt.subplot(2,2,4)
-                plt.plot(logp_pi, 'b.')
-                plt.title('LogPi')
+                plt.plot(alpha_logpi, 'b.')
+                plt.title('- alpha_logpi')
                 plt.grid()
                 plt.show()
                     
@@ -692,12 +698,23 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
 
 
         for trajectory in standalone_trajectories:
+            temp_r = []
+            # print('in for trajectory, n step', n_step_return)
+            # print(trajectory["observations"][:-n_step_return].shape)
+            # print(trajectory["actions"][:-(n_step_return-1)].shape)
+            # print(window(trajectory["rewards"], n_step_return).shape)
+            # print(window(trajectory["num_frames_for_steps"], n_step_return).shape)
+            # print(trajectory["observations"][n_step_return:].shape)
+            if n_step_return > 1:
+                actions = trajectory["actions"][:-(n_step_return-1)]
+            else:
+                actions = trajectory["actions"]
 
             for idx, (observation, action, reward_window, num_frames_for_step_window, observation_n_plus) \
             in enumerate(
                 zip(
                     trajectory["observations"][:-n_step_return],  # o_t
-                    trajectory["actions"][:-(n_step_return-1)],  # a_t
+                    actions,  # a_t
                     window(trajectory["rewards"], n_step_return),  # r_t+1 ... r_t+n
                     window(trajectory["num_frames_for_steps"], n_step_return),
                     trajectory["observations"][n_step_return:]  # o_t+n
@@ -713,24 +730,35 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
 
             logger.store(EpRet=sum(trajectory["rewards"]), EpLen=len(trajectory["rewards"]))
 
+            temp_r.append(sum(trajectory["rewards"]))
+        reward_list.append(np.mean(temp_r))
+
+        plt.figure(figsize=(13,5))
+        plt.plot(reward_list, 'b.-')
+        plt.title('average reward at each epoch')
+        plt.grid()
+        plt.show()
+
         print('shape of obs', trajectory["observations"].shape)
         print('shape of action', trajectory["actions"].shape)
+
+
         # print reward
-        print('print reward related ', idx)
+        # print('print reward related ', idx)
         plt.figure(figsize=(7,4))
         plt.plot(trajectory["rewards"], 'b.')
         plt.title('trajectory["rewards"]')
         plt.grid()
         plt.show()
 
-        plt.figure(figsize=(7,4))
-        plt.plot(np.array(reward_window), '.b')
-        plt.title('reward_window')
-        plt.grid()
-        plt.show()
+        # plt.figure(figsize=(7,4))
+        # plt.plot(np.array(reward_window), '.b')
+        # plt.title('reward_window')
+        # plt.grid()
+        # plt.show()
 
         # print action
-        print('print action ', idx)
+        # print('print action ', idx)
         plt.figure(figsize=(7,4))
         plt.plot(trajectory["actions"][:,0], 'b.')
         plt.title('actions 0 delta')
@@ -796,7 +824,7 @@ if __name__ == '__main__':
     parser.add_argument('--polyak', type=float, default=0.995)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--batch_size', type=int, default=4096)
-    parser.add_argument('--n_step_return', type=int, default=5) # default 5, try 1?
+    parser.add_argument('--n_step_return', type=int, default=1) # default 5, try 1?
     parser.add_argument('--alpha', type=float, default=0.01)
     parser.add_argument('--debug', default=False, action='store_true')
     parser.add_argument('--evaluate', default=False, action='store_true')
