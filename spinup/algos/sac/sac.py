@@ -510,6 +510,7 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
     )
 
     if restore_dir:
+        print('load previous')
         restore_checkpoint_only(sess, restore_dir)
         replay_buffer = joblib.load(os.path.join(restore_dir, "../vars.pkl"))["replay_buffer"]
     else:
@@ -534,6 +535,7 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
 
         # ----------------------------------- Evaluate current policy --------------------------------------------------
         if epoch % 2 == 0 and evaluate:  # TODO: automatically adjust based on horizon and eval lengths
+            print('on eval ')
             eval_pool = Pool(processes=1)
             evaluation_epoch = epoch
             evaluation_result = eval_pool.apply_async(
@@ -544,6 +546,12 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
                     "computation_graph_kwargs": worker_kwargs
                 }
             )
+
+        if evaluate:
+            evaluation_lap_time, evaluation_reward_sum = evaluation_result.get()
+            eval_pool.close()
+        else:
+            evaluation_lap_time, evaluation_reward_sum = -1, -1
 
         # ----------------------------------- sample trajectories with current policy ----------------------------------
         with Pool(processes=number_of_workers) as sampling_pool:
@@ -656,11 +664,11 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
                     completed_trajectories += num_cars
 
         # TODO: automatically adjust "% interval" based on horizon and eval lengths
-        if epoch % 2 == 1 and evaluate:
-            evaluation_lap_time, evaluation_reward_sum = evaluation_result.get()
-            eval_pool.close()
-        else:
-            evaluation_lap_time, evaluation_reward_sum = -1, -1
+        # if epoch % 2 == 1 and evaluate:
+        #     evaluation_lap_time, evaluation_reward_sum = evaluation_result.get()
+        #     eval_pool.close()
+        # else:
+        #     evaluation_lap_time, evaluation_reward_sum = -1, -1
 
         t_sampling = time.time() - t_sampling_start
 
@@ -733,15 +741,18 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
             temp_r.append(sum(trajectory["rewards"]))
         reward_list.append(np.mean(temp_r))
 
+
+        x_idx =  list(range(len(reward_list)))
+        num = 100
         plt.figure(figsize=(13,5))
-        plt.plot(reward_list, 'b.-')
+        plt.plot(x_idx[-num:],reward_list[-num:], 'b.-')
         plt.title('average reward at each epoch')
         plt.grid()
         plt.show()
 
         print('shape of obs', trajectory["observations"].shape)
         print('shape of action', trajectory["actions"].shape)
-
+        print('average reward ', reward_list[-1])
 
         # print reward
         # print('print reward related ', idx)
