@@ -835,7 +835,7 @@ if __name__ == '__main__':
     parser.add_argument('--polyak', type=float, default=0.995)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--batch_size', type=int, default=4096)
-    parser.add_argument('--n_step_return', type=int, default=1) # default 5, try 1?
+    parser.add_argument('--n_step_return', type=int, default=5) # default 5, try 1?
     parser.add_argument('--alpha', type=float, default=0.01)
     parser.add_argument('--debug', default=False, action='store_true')
     parser.add_argument('--evaluate', default=False, action='store_true')

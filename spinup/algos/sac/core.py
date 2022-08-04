@@ -71,12 +71,30 @@ def mlp_gaussian_policy(x, a, hidden_sizes, activation, output_activation):
     logp_pi = gaussian_likelihood(pi, mu, log_std)
     return mu, std, pi, logp_pi
 
+
+# the implementation in Floran's code seems very strange
 def apply_squashing_func(mu, std, pi, logp_pi):
     # mu = tf.tanh(mu)
     pi = tf.tanh(pi)
     # To avoid evil machine precision error, strictly clip 1-pi**2 to [0,1] range.
     logp_pi -= tf.reduce_sum(tf.log(clip_but_pass_gradient(1 - pi**2, l=0, u=1) + 1e-6), axis=1)
     return mu, std, pi, logp_pi
+
+
+'''
+def apply_squashing_func(mu, std, pi, logp_pi):
+    # Adjustment to log prob
+    # NOTE: This formula is a little bit magic. To get an understanding of where it
+    # comes from, check out the original SAC paper (arXiv 1801.01290) and look in
+    # appendix C. This is a more numerically-stable equivalent to Eq 21.
+    # Try deriving it yourself as a (very difficult) exercise. :)
+    logp_pi -= tf.reduce_sum(2*(np.log(2) - pi - tf.nn.softplus(-2*pi)), axis=1)
+
+    # Squash those unbounded actions!
+    mu = tf.tanh(mu)
+    pi = tf.tanh(pi)
+    return mu, std, pi, logp_pi
+'''
 
 
 """
