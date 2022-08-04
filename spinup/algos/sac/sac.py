@@ -11,6 +11,7 @@ import multiprocessing as mp
 from multiprocessing import Pool
 import joblib
 
+import matplotlib.pyplot as plt
 
 def evaluation_process(
         checkpoint_path, gym_kwargs, computation_graph_kwargs
@@ -513,6 +514,7 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
 
     number_of_workers = len(ips) - (1 if evaluate else 0)
 
+    reward_list = []
     while True:
         # ----------------------------------- Save checkpoint of model to allow serving to subprocesses ----------------
         t_model_save_start = time.time()
@@ -627,7 +629,7 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
         gamma_window = np.array([gamma**i for i in range(n_step_return)])  # gammas to calculate TD(n) target
 
         for trajectory in standalone_trajectories:
-
+            temp_r = []
             for idx, (observation, action, reward_window, num_frames_for_step_window, observation_n_plus) \
             in enumerate(
                 zip(
@@ -648,8 +650,21 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
                     print("Step %i not included since slow step is in n-step window around it" % idx)
 
             logger.store(EpRet=sum(trajectory["rewards"]), EpLen=len(trajectory["rewards"]))
-
+            temp_r.append(np.sum(trajectory["rewards"]))
         t_store = time.time() - t_store_start
+
+        print('!! average reward is', np.mean(temp_r))
+        reward_list.append(np.mean(temp_r))
+
+
+        iter_length = len(reward_list)
+        x = list(range(iter_length))
+        plt_length = 100
+
+        plt.figure(figsize=(13,5))
+        plt.plot(x[-plt_length:], reward_list[-plt_length:], 'b.-')
+        plt.title('average at each epoch')
+        plt.show()
 
         # ------------------------------------- epoch wrap up ----------------------------------------------------------
 
