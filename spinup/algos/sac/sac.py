@@ -11,6 +11,8 @@ import multiprocessing as mp
 from multiprocessing import Pool
 import joblib
 
+import matplotlib.pyplot as plt
+# import seaborn as sns
 
 def evaluation_process(
         checkpoint_path, gym_kwargs, computation_graph_kwargs
@@ -118,6 +120,7 @@ def trajectory_sample_process(
 maf = 6
 c_wall_hit = 1/(2000*10/9.3)
 horizon = 100
+# horizon = 5
 max_eval_lap = 100
 
 
@@ -175,11 +178,11 @@ def construct_computation_graph(
 
     # Main outputs from computation graph
     with tf.variable_scope('main'):
-        mu, pi, logp_pi, q1, q2, q1_pi, q2_pi, v = actor_critic(x_ph, a_ph, **ac_kwargs)
+        mu, std, pi, logp_pi, q1, q2, q1_pi, q2_pi, v = actor_critic(x_ph, a_ph, **ac_kwargs)
 
     # Target value network
     with tf.variable_scope('target'):
-        _, _, _, _, _, _, _, v_targ = actor_critic(x2_ph, a_ph, **ac_kwargs)
+        _, _, _, _, _, _, _, _, v_targ = actor_critic(x2_ph, a_ph, **ac_kwargs)
 
     # Count variables
     var_counts = tuple(core.count_vars(scope) for scope in
@@ -223,6 +226,10 @@ def construct_computation_graph(
     step_ops = [pi_loss, q1_loss, q2_loss, v_loss, q1, q2, v, logp_pi,
                 train_pi_op, train_value_op, target_update]
 
+    # other states to show
+    alpha_logpi = - alpha * logp_pi
+    step_ops += [v_targ, alpha_logpi]
+
     # Initializing targets to match main variables
     target_init = tf.group([tf.assign(v_targ, v_main)
                             for v_main, v_targ in zip(get_vars('main'), get_vars('target'))])
@@ -232,7 +239,7 @@ def construct_computation_graph(
     sess.run(target_init)
 
     inputs = {'x': x_ph, 'a': a_ph}
-    outputs = {'mu': mu, 'pi': pi, 'q1': q1, 'q2': q2, 'v': v}
+    outputs = {'mu': mu, 'std':std, 'pi': pi, 'q1': q1, 'q2': q2, 'v': v}
 
     def get_actions(observations, deterministic=False):
         act_op = mu if deterministic else pi
@@ -244,8 +251,13 @@ def construct_computation_graph(
 def window(seq, n=2):
     "Returns a sliding window (of width n) over data from the iterable"
     "   s -> (s0,s1,...s[n-1]), (s1,s2,...,sn), ...                   "
+    # if n == 1:
+    #     print('n step is 1')
+    #     return seq[:-n]
+
     it = iter(seq)
     result = tuple(islice(it, n))
+ 
     if len(result) == n:
         yield result
     for elem in it:
@@ -498,6 +510,7 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
     )
 
     if restore_dir:
+        print('load previous')
         restore_checkpoint_only(sess, restore_dir)
         replay_buffer = joblib.load(os.path.join(restore_dir, "../vars.pkl"))["replay_buffer"]
     else:
@@ -513,6 +526,7 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
 
     number_of_workers = len(ips) - (1 if evaluate else 0)
 
+    reward_list = []
     while True:
         # ----------------------------------- Save checkpoint of model to allow serving to subprocesses ----------------
         t_model_save_start = time.time()
@@ -521,6 +535,7 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
 
         # ----------------------------------- Evaluate current policy --------------------------------------------------
         if epoch % 2 == 0 and evaluate:  # TODO: automatically adjust based on horizon and eval lengths
+            print('on eval ')
             eval_pool = Pool(processes=1)
             evaluation_epoch = epoch
             evaluation_result = eval_pool.apply_async(
@@ -531,6 +546,12 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
                     "computation_graph_kwargs": worker_kwargs
                 }
             )
+
+        if evaluate:
+            evaluation_lap_time, evaluation_reward_sum = evaluation_result.get()
+            eval_pool.close()
+        else:
+            evaluation_lap_time, evaluation_reward_sum = -1, -1
 
         # ----------------------------------- sample trajectories with current policy ----------------------------------
         with Pool(processes=number_of_workers) as sampling_pool:
@@ -556,7 +577,7 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
             if epoch != 0:  # only start learning once data is available
                 # hacky solution such that number of updates not dependent on step frequency
                 num_updates = int(64 * (0.1 if debug else 1)) * completed_trajectories
-
+                print('num_updates is ', num_updates)
                 for j in range(num_updates):
                     if j % 500 == 0:
                         print("learning step %i of %i" % (j, num_updates))
@@ -571,6 +592,63 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
                     logger.store(LossPi=outs[0], LossQ1=outs[1], LossQ2=outs[2],  # TODO: measure time!!!
                                  LossV=outs[3], Q1Vals=outs[4], Q2Vals=outs[5],
                                  VVals=outs[6], LogPi=outs[7])
+
+                # print mu
+                outputs_ = sess.run(outputs, feed_dict)
+                mu = outputs_['mu']
+                std = outputs_['std']
+                print('print mu last time training')
+                print('std shape', std.shape)
+
+                x = np.arange(mu.shape[0])
+
+                plt.figure(figsize=(13,8))
+                plt.subplot(221)
+                plt.plot(x, mu[:,0], 'b.')
+                plt.title('mean delta')
+
+                plt.subplot(222)
+                plt.plot(x, mu[:,1], 'b.')
+                plt.title('mean pedal')
+
+                plt.subplot(223)
+                plt.plot(x, std[:,0], 'b.')
+                plt.title('std delta')
+
+                plt.subplot(224)
+                plt.plot(x, std[:,1], 'b.')
+                plt.title('std pedal')
+
+
+                (q1, q2, v, logp_pi) = outs[4:8]
+                (v_targ, alpha_logpi) = outs[11:]
+
+                plt.figure(figsize=(15,8))
+                plt.subplot(2,2,1)
+                plt.plot(q1, 'b.')
+                plt.grid()
+                plt.title('q1')
+
+                plt.subplot(2,2,2)
+                plt.plot(q2, 'b.')
+                plt.grid()
+                plt.title('q2')
+                    
+                plt.subplot(2,2,3)
+                plt.plot(v, 'b.', label='v')
+                plt.plot(v_targ, 'r.', label='v target')
+                plt.legend()
+                plt.grid()
+                plt.title('v')
+                    
+                plt.subplot(2,2,4)
+                plt.plot(alpha_logpi, 'b.')
+                plt.title('- alpha_logpi')
+                plt.grid()
+                plt.show()
+                    
+            
+                    
             else:
                 logger.store(LossPi=-1, LossQ1=-1, LossQ2=-1, LossV=-1, Q1Vals=-1, Q2Vals=-1, VVals=-1, LogPi=-1)
 
@@ -586,11 +664,11 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
                     completed_trajectories += num_cars
 
         # TODO: automatically adjust "% interval" based on horizon and eval lengths
-        if epoch % 2 == 1 and evaluate:
-            evaluation_lap_time, evaluation_reward_sum = evaluation_result.get()
-            eval_pool.close()
-        else:
-            evaluation_lap_time, evaluation_reward_sum = -1, -1
+        # if epoch % 2 == 1 and evaluate:
+        #     evaluation_lap_time, evaluation_reward_sum = evaluation_result.get()
+        #     eval_pool.close()
+        # else:
+        #     evaluation_lap_time, evaluation_reward_sum = -1, -1
 
         t_sampling = time.time() - t_sampling_start
 
@@ -626,13 +704,25 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
 
         gamma_window = np.array([gamma**i for i in range(n_step_return)])  # gammas to calculate TD(n) target
 
+
         for trajectory in standalone_trajectories:
+            temp_r = []
+            # print('in for trajectory, n step', n_step_return)
+            # print(trajectory["observations"][:-n_step_return].shape)
+            # print(trajectory["actions"][:-(n_step_return-1)].shape)
+            # print(window(trajectory["rewards"], n_step_return).shape)
+            # print(window(trajectory["num_frames_for_steps"], n_step_return).shape)
+            # print(trajectory["observations"][n_step_return:].shape)
+            if n_step_return > 1:
+                actions = trajectory["actions"][:-(n_step_return-1)]
+            else:
+                actions = trajectory["actions"]
 
             for idx, (observation, action, reward_window, num_frames_for_step_window, observation_n_plus) \
             in enumerate(
                 zip(
                     trajectory["observations"][:-n_step_return],  # o_t
-                    trajectory["actions"][:-(n_step_return-1)],  # a_t
+                    actions,  # a_t
                     window(trajectory["rewards"], n_step_return),  # r_t+1 ... r_t+n
                     window(trajectory["num_frames_for_steps"], n_step_return),
                     trajectory["observations"][n_step_return:]  # o_t+n
@@ -643,11 +733,54 @@ def sac(maf, ips, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
                     replay_buffer.store(
                         observation, action, np.sum(np.array(reward_window)*gamma_window), observation_n_plus, False
                     )
-
                 else:
                     print("Step %i not included since slow step is in n-step window around it" % idx)
 
             logger.store(EpRet=sum(trajectory["rewards"]), EpLen=len(trajectory["rewards"]))
+
+            temp_r.append(sum(trajectory["rewards"]))
+        reward_list.append(np.mean(temp_r))
+
+
+        x_idx =  list(range(len(reward_list)))
+        num = 100
+        plt.figure(figsize=(13,5))
+        plt.plot(x_idx[-num:],reward_list[-num:], 'b.-')
+        plt.title('average reward at each epoch')
+        plt.grid()
+        plt.show()
+
+        print('shape of obs', trajectory["observations"].shape)
+        print('shape of action', trajectory["actions"].shape)
+        print('average reward ', reward_list[-1])
+
+        # print reward
+        # print('print reward related ', idx)
+        plt.figure(figsize=(7,4))
+        plt.plot(trajectory["rewards"], 'b.')
+        plt.title('trajectory["rewards"]')
+        plt.grid()
+        plt.show()
+
+        # plt.figure(figsize=(7,4))
+        # plt.plot(np.array(reward_window), '.b')
+        # plt.title('reward_window')
+        # plt.grid()
+        # plt.show()
+
+        # print action
+        # print('print action ', idx)
+        plt.figure(figsize=(7,4))
+        plt.plot(trajectory["actions"][:,0], 'b.')
+        plt.title('actions 0 delta')
+        plt.grid()
+        plt.show()   
+
+        plt.figure(figsize=(7,4))
+        plt.plot(trajectory["actions"][:,1], 'b.')
+        plt.title('actions 1 acc')
+        plt.grid()
+        plt.show()  
 
         t_store = time.time() - t_store_start
 
@@ -702,7 +835,7 @@ if __name__ == '__main__':
     parser.add_argument('--polyak', type=float, default=0.995)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--batch_size', type=int, default=4096)
-    parser.add_argument('--n_step_return', type=int, default=5)
+    parser.add_argument('--n_step_return', type=int, default=5) # default 5, try 1?
     parser.add_argument('--alpha', type=float, default=0.01)
     parser.add_argument('--debug', default=False, action='store_true')
     parser.add_argument('--evaluate', default=False, action='store_true')
@@ -712,6 +845,10 @@ if __name__ == '__main__':
     from spinup.utils.run_utils import setup_logger_kwargs
     logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
 
+    
+    # style = "whitegrid"
+    # sns.set_theme(style=style) # background color
+    
     sac(maf=args.maf, actor_critic=core.mlp_actor_critic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l, activation=args.act),
         gamma=args.gamma, seed=args.seed, epochs=args.epochs,
